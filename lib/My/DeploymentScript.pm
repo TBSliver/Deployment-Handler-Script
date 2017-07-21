@@ -1,12 +1,8 @@
 package My::DeploymentScript;
 
-use Moo;
-use MooX::Options protect_argv => 0;
+use MooX::Options::Actions;
 use Module::Runtime qw/ use_module /;
 use DBIx::Class::DeploymentHandler;
-use namespace::clean -except => [
-  qw/ _options_data _options_config /
-];
 
 =head1 NAME
 
@@ -45,6 +41,34 @@ option connection => (
   doc      => "The DBI connection string to use",
 );
 
+=head2 --username ( -u )
+
+The username to use for connection to the database
+
+=cut
+
+option username => (
+  is      => 'ro',
+  format  => 's',
+  default => '',
+  short   => 'u',
+  doc     => "The username for the DB connection",
+);
+
+=head2 --password ( -p )
+
+The password to use for connection to the database
+
+=cut
+
+option password => (
+  is      => 'ro',
+  format  => 's',
+  default => '',
+  short   => 'p',
+  doc     => "The password for the supplied user",
+);
+
 =head2 --force ( -f )
 
 This option will force the action if required - for example when overwriting
@@ -57,6 +81,21 @@ option force => (
   default => sub { 0 },
   short   => 'f',
   doc     => "Force the action if required",
+);
+
+=head2 --version ( -v )
+
+This option allows you to select a specific verison for installing and generating
+ddl.
+
+=cut
+
+option version => (
+  is => 'ro',
+  format => 'i',
+  default => sub { shift->dh->schema->schema_version },
+  short => 'v',
+  doc => "Version to use as target",
 );
 
 =head1 ATTRIBUTES
@@ -85,7 +124,11 @@ This is the connected schema. This uses the 'schema_class' attribute and
 has schema => (
   is      => 'lazy',
   builder => sub {
-    return use_module( $self->schema_class )->connect( $self->connection );
+    return use_module( $self->schema_class )->connect(
+      $self->connection,
+      $self->username,
+      $self->password,
+    );
   },
 );
 
@@ -114,7 +157,7 @@ defaults to returning the following:
 
 has databases => (
   is      => 'ro',
-  default => sub { [ 'mysql' ] },
+  default => sub { [ qw/ MySQL PostgreSQL SQLite / ] },
 );
 
 =head2 dh
@@ -151,7 +194,7 @@ sub cmd_write_ddl {
   my ( $self ) = @_;
 
   $self->_dh->prepare_install;
-  my $v = $self->_dh->schema_version;
+  my $v = $self->version;
 
   if ( $v > 1 ) {
     $self->_dh->prepare_upgrade({
@@ -173,7 +216,7 @@ sub cmd_install_dh {
 
   $self->_dh->install_version_storage;
   $self->_dh->add_database_version({
-    version => $self->_dh->schema->schema_version,
+    version => $self->version,
   });
 }
 
@@ -186,7 +229,9 @@ This command will install all the tables to the provided database
 sub cmd_install {
   my ( $self ) = @_;
 
-  $self->_dh->install;
+  $self->_dh->install({
+    version => $self->version,
+  });
 }
 
 =head2 upgrade
@@ -199,29 +244,6 @@ sub cmd_upgrade {
   my ( $self ) = @_;
 
   $self->_dh->upgrade;
-}
-
-=head1 MISC FUNCTIONS
-
-These are misc details about this script item
-
-=head2 BUILD
-
-The build function is the actual magic behind the commands, allowing any
-subroutine which exists with the prefix 'cmd_' to be ran from the command line.
-
-=cut
-
-sub BUILD {
-  my ( $self ) = @_;
-
-  my ( $cmd, @extra ) = @ARGV;
-
-  die "Must supply a command\n" unless $cmd;
-  die "Extra commands found - Please provide only one!\n" if @extra;
-  die "No such command ${cmd} \n" unless $self->can("cmd_${cmd}");
-
-  $self->${\"cmd_${cmd}"};
 }
 
 =head1 AUTHOR
